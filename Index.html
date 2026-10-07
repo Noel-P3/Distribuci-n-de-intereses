@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Distribución de intereses</title>
+<style>
+:root{--bg:#eef2f4;--card:#fff;--ink:#14262e;--mute:#5b707a;--line:#d3dde2;--a:#0f6b5c;--b:#c2862b;--c:#4a6fa5;--d:#8a5a8f;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1a1f;--card:#17252c;--ink:#e6eef1;--mute:#8fa5af;--line:#2a3d46;--a:#3fb9a3;--b:#e0a84c;--c:#7fa3d6;--d:#c18fc6}}
+:root[data-theme="dark"]{--bg:#0f1a1f;--card:#17252c;--ink:#e6eef1;--mute:#8fa5af;--line:#2a3d46;--a:#3fb9a3;--b:#e0a84c;--c:#7fa3d6;--d:#c18fc6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.5rem;margin:8px 0 4px}
+p.sub{color:var(--mute);margin:0 0 18px}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+h2{font-size:1rem;margin:0 0 12px}
+.row{display:flex;gap:10px;align-items:end;margin-bottom:10px;flex-wrap:wrap}
+label{display:block;font-size:.85rem;color:var(--mute);margin-bottom:3px}
+input{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:9px 10px;font-variant-numeric:tabular-nums}
+input:focus-visible,button:focus-visible{outline:2px solid var(--a);outline-offset:1px}
+.f{flex:1;min-width:130px}.f.s{flex:0 0 110px;min-width:90px}
+button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:9px 12px}
+button.p{background:var(--a);border-color:var(--a);color:#fff}
+.x{padding:9px 11px;color:var(--mute)}
+.bar{display:flex;height:34px;border-radius:6px;overflow:hidden;margin-bottom:6px;background:var(--line)}
+.bar div{display:flex;align-items:center;justify-content:center;color:#fff;font-size:.8rem;font-weight:600;min-width:0;overflow:hidden;transition:width .25s}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:520px}
+th,td{padding:8px 6px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-size:.82rem;color:var(--mute);font-weight:600}
+tfoot td{font-weight:700;border-bottom:0}
+td.net{color:var(--a);font-weight:700}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+.msg{color:var(--mute);margin:6px 0 0;font-size:.9rem}
+.err{color:#c0392b}
+</style>
+</head>
+<body>
+<main>
+<h1>Distribución de intereses</h1>
+<p class="sub">Reparte el interés neto entre los saldos de la cuenta, en proporción al monto de cada uno.</p>
+
+<section>
+<h2>Interés del período</h2>
+<div class="row">
+<div class="f"><label for="int">Interés generado (bruto)</label><input id="int" inputmode="decimal" value="1357.09"></div>
+<div class="f s"><label for="tax">Retención %</label><input id="tax" inputmode="decimal" value="10"></div>
+</div>
+</section>
+
+<section>
+<h2>Saldos antes del interés</h2>
+<div id="accts"></div>
+<button id="add" type="button">Agregar saldo</button>
+<p class="msg">Usa el balance de cada categoría justo antes de capitalizar el interés.</p>
+</section>
+
+<section>
+<h2>Resultado</h2>
+<div class="bar" id="bar" aria-hidden="true"></div>
+<p class="msg" id="msg"></p>
+<div class="tw"><table>
+<thead><tr><th>Saldo</th><th>%</th><th>Interés bruto</th><th>Retención</th><th>Neto a sumar</th><th>Nuevo balance</th></tr></thead>
+<tbody id="out"></tbody><tfoot id="foot"></tfoot>
+</table></div>
+<div class="row" style="margin-top:12px"><button id="copy" class="p" type="button">Copiar netos</button><span class="msg" id="cm"></span></div>
+</section>
+</main>
+<script>
+var COLORS=['var(--a)','var(--b)','var(--c)','var(--d)'];
+var accts=[{n:'Emergencia-Pame',v:'0.00'},{n:'Mudanza',v:'0.00'}];
+var fmt=new Intl.NumberFormat('es-DO',{minimumFractionDigits:2,maximumFractionDigits:2});
+function num(s){var x=parseFloat(String(s).replace(/,/g,'').trim());return isFinite(x)?x:0}
+function cents(x){return Math.round(x*100)}
+function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+// reparte "total" centavos en proporción a w, sumando exactamente total
+function alloc(total,w){
+  var sum=w.reduce(function(a,b){return a+b},0);
+  if(sum<=0)return w.map(function(){return 0});
+  var raw=w.map(function(x){return total*x/sum});
+  var base=raw.map(Math.floor);
+  var left=total-base.reduce(function(a,b){return a+b},0);
+  raw.map(function(r,i){return[r-base[i],i]}).sort(function(a,b){return b[0]-a[0]})
+    .slice(0,left).forEach(function(p){base[p[1]]++});
+  return base;
+}
+function draw(){
+  var box=document.getElementById('accts');box.innerHTML='';
+  accts.forEach(function(a,i){
+    var d=document.createElement('div');d.className='row';
+    d.innerHTML='<div class="f"><label>Nombre</label><input data-i="'+i+'" data-k="n" value="'+esc(a.n)+'"></div>'+
+    '<div class="f"><label>Balance</label><input data-i="'+i+'" data-k="v" inputmode="decimal" value="'+esc(a.v)+'"></div>'+
+    (accts.length>2?'<button class="x" type="button" data-del="'+i+'" aria-label="Quitar saldo">✕</button>':'');
+    box.appendChild(d);
+  });
+  calc();
+}
+function calc(){
+  var G=cents(num(document.getElementById('int').value));
+  var T=Math.round(G*num(document.getElementById('tax').value)/100);
+  var bal=accts.map(function(a){return cents(num(a.v))});
+  var tot=bal.reduce(function(a,b){return a+b},0);
+  var out=document.getElementById('out'),foot=document.getElementById('foot'),bar=document.getElementById('bar'),msg=document.getElementById('msg');
+  out.innerHTML='';foot.innerHTML='';bar.innerHTML='';msg.className='msg';
+  if(tot<=0){msg.className='msg err';msg.textContent='Escribe al menos un balance mayor que cero.';return}
+  var g=alloc(G,bal),t=alloc(T,bal),rows=[];
+  accts.forEach(function(a,i){
+    var net=g[i]-t[i],pct=bal[i]/tot*100;rows.push(net);
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td><span class="dot" style="background:'+COLORS[i%4]+'"></span>'+esc(a.n||'Saldo '+(i+1))+'</td><td>'+pct.toFixed(2)+'%</td><td>'+fmt.format(g[i]/100)+'</td><td>-'+fmt.format(t[i]/100)+'</td><td class="net">'+fmt.format(net/100)+'</td><td>'+fmt.format((bal[i]+net)/100)+'</td>';
+    out.appendChild(tr);
+    var s=document.createElement('div');s.style.width=pct+'%';s.style.background=COLORS[i%4];s.textContent=pct>=12?pct.toFixed(1)+'%':'';bar.appendChild(s);
+  });
+  var N=G-T;
+  foot.innerHTML='<tr><td>Total</td><td>100%</td><td>'+fmt.format(G/100)+'</td><td>-'+fmt.format(T/100)+'</td><td>'+fmt.format(N/100)+'</td><td>'+fmt.format((tot+N)/100)+'</td></tr>';
+  msg.textContent='Interés neto a repartir: '+fmt.format(N/100)+' sobre una cuenta de '+fmt.format(tot/100)+'.';
+  window._rows=rows;
+}
+document.addEventListener('input',function(e){
+  var el=e.target;
+  if(el.dataset&&el.dataset.k){accts[+el.dataset.i][el.dataset.k]=el.value}
+  calc();
+});
+document.addEventListener('click',function(e){
+  var el=e.target;
+  if(el.dataset&&el.dataset.del!==undefined){accts.splice(+el.dataset.del,1);draw()}
+});
+document.getElementById('add').onclick=function(){accts.push({n:'',v:'0'});draw()};
+document.getElementById('copy').onclick=function(){
+  var txt=accts.map(function(a,i){return(a.n||'Saldo '+(i+1))+'\t'+((window._rows&&window._rows[i]||0)/100).toFixed(2)}).join('\n');
+  var done=function(){document.getElementById('cm').textContent='Copiado'};
+  try{navigator.clipboard.writeText(txt).then(done,function(){document.getElementById('cm').textContent='No se pudo copiar'})}
+  catch(err){document.getElementById('cm').textContent='No se pudo copiar'}
+};
+draw();
+</script>
+</body>
+</html>
